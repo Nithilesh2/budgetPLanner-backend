@@ -37,13 +37,10 @@ app.post("/signup", async (req, res) => {
   try {
     const { email, password, RePassword } = req.body
 
-    if (!email || !password || !RePassword) {
-      return res.status(400).json({ message: "All fields are required" })
-    }
-
     const userCheck = await User.findOne({ email })
+
     if (userCheck) {
-      console.log("User already exist")
+      res.status(409).json({ message: "User already exists with this email" })
     }
 
     const user = new User({
@@ -53,12 +50,12 @@ app.post("/signup", async (req, res) => {
     })
     await user.save()
 
-    res.status(200).json({
+    res.status(201).json({
       message:
         "Got your credentials🥳 Bingo! You're now part of the family. Cheers! 🥂",
     })
   } catch (error) {
-    console.error("Error signing up", error)
+    res.status(500).json({ message: "Internal server error" })
   }
 })
 
