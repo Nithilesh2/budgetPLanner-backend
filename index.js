@@ -1,7 +1,7 @@
 import dotenv from "dotenv"
 import express from "express"
 import cors from "cors"
-
+import bcrypt, { hash } from "bcrypt"
 import connnetDB from "./db/index.js"
 import User from "./models/user.models.js"
 import Data from "./models/data.models.js"
@@ -65,8 +65,17 @@ app.post("/signup", async (req, res) => {
     if (userCheck) {
       res.status(409).json({ message: "User already exists with this email" })
     }
+    const salt = 10
+    const hashedPassword = async (password) => {
+      try {
+        const hased = await bcrypt.hash(password, salt)
+        return hased
+      } catch (error) {
+        console.log("Error while hashing password", error)
+      }
+    }
 
-    const user = new User({ name, email, password })
+    const user = new User({ name, email, password: hashedPassword })
     await user.save()
 
     res.status(201).json({
@@ -91,14 +100,16 @@ app.post("/login", async (req, res) => {
     if (!passCheck) {
       return res.status(401).json({ message: "Password incorrect" })
     }
-
     if (emailCheck) {
-      if (passCheck) {
-        res.status(200).json({
+      const isMatch = await bcrypt.compare(passCheck, emailCheck.passsword)
+      if (isMatch) {
+        return res.status(200).json({
           message: "Successfully logged in",
           userId: emailCheck._id,
           name: emailCheck.name,
         })
+      } else {
+        return res.status(401).json({ message: "Invaid password" })
       }
     }
   } catch (error) {
@@ -128,7 +139,7 @@ app.delete("/users/:id", async (req, res) => {
 
 //to post the data for that user
 app.post("/users/:userId/data", async (req, res) => {
-  const { category, amount } = req.body
+  const { category, amount, budget } = req.body
   const { userId } = req.params
 
   try {
@@ -147,6 +158,40 @@ app.post("/users/:userId/data", async (req, res) => {
         message: "Amount added successfully",
         data: checkCategory,
       })
+    }
+
+    const dataChange = await Data.findOne({ user: userId })
+    if (!dataChange) {
+      dataChange = new Data({
+        user: userId,
+        budget: 500,
+      })
+      await dataChange.save()
+    }
+
+    if (budget !== undefined) {
+      const prevBudget = dataChange.budget
+      dataChange.budget = budget
+      await dataChange.save()
+      if (budget > prevBudget) {
+        return res.status(200).json({
+          message: "Budget increased successfully! 💰📈",
+          budgetAmount: budget,
+          prevData: prevBudget,
+        })
+      } else if (budget < prevBudget) {
+        return res.status(200).json({
+          message: "Budget decreased successfully! 💰📉",
+          budgetAmount: budget,
+          prevData: prevBudget,
+        })
+      } else {
+        return res.status(200).json({
+          message: "Budget remains same! 💰📊",
+          budgetAmount: budget,
+          prevData: prevBudget,
+        })
+      }
     }
 
     const newData = new Data({
