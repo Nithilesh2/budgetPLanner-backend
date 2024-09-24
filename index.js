@@ -5,6 +5,7 @@ import bcrypt, { hash } from "bcrypt"
 import connnetDB from "./db/index.js"
 import User from "./models/user.models.js"
 import Data from "./models/data.models.js"
+import { Mongoose } from "mongoose"
 
 const app = express()
 
@@ -29,9 +30,9 @@ connnetDB()
 app.get("/users", async (req, res) => {
   try {
     const users = await User.find()
-    res.status(200).json(users)
+    return res.status(200).json(users)
   } catch (error) {
-    console.error(error)
+    return res.status(500).json({ message: `failed to get data : ${error}` })
   }
 })
 
@@ -50,7 +51,6 @@ app.get("/users/:userId", async (req, res) => {
     )
     return res.status(200).json(sortedData)
   } catch (error) {
-    console.error(error)
     return res.status(500).json({ message: "Server error" })
   }
 })
@@ -63,27 +63,23 @@ app.post("/signup", async (req, res) => {
     const userCheck = await User.findOne({ email })
 
     if (userCheck) {
-      res.status(409).json({ message: "User already exists with this email" })
+      return res
+        .status(409)
+        .json({ message: "User already exists with this email" })
     }
     const salt = 10
-    const hashedPassword = async (password) => {
-      try {
-        const hased = await bcrypt.hash(password, salt)
-        return hased
-      } catch (error) {
-        console.log("Error while hashing password", error)
-      }
-    }
+    const hashedPassword = await bcrypt.hash(password, salt)
 
     const user = new User({ name, email, password: hashedPassword })
     await user.save()
 
-    res.status(201).json({
+    return res.status(201).json({
       message:
         "Got your credentials🥳 Bingo! You're now part of the family. Cheers! 🥂",
+      passwordData: hashedPassword,
     })
   } catch (error) {
-    res.status(500).json({ message: "Internal server error" })
+    return res.status(500).json({ message: "Internal server error" })
   }
 })
 
@@ -93,27 +89,21 @@ app.post("/login", async (req, res) => {
 
   try {
     const emailCheck = await User.findOne({ email })
-    const passCheck = await User.findOne({ password })
     if (!emailCheck) {
       return res.status(404).json({ message: "Email incorrect" })
     }
-    if (!passCheck) {
-      return res.status(401).json({ message: "Password incorrect" })
+    const isMatch = await bcrypt.compare(password, emailCheck.password)
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Incorrect password" })
     }
-    if (emailCheck) {
-      const isMatch = await bcrypt.compare(passCheck, emailCheck.passsword)
-      if (isMatch) {
-        return res.status(200).json({
-          message: "Successfully logged in",
-          userId: emailCheck._id,
-          name: emailCheck.name,
-        })
-      } else {
-        return res.status(401).json({ message: "Invaid password" })
-      }
-    }
+    return res.status(200).json({
+      message: "Successfully logged in",
+      userId: emailCheck._id,
+      name: emailCheck.name,
+    })
   } catch (error) {
-    console.error("Error at login", error)
+    return res.status(500).json({ message: `error while login: ${error}` })
   }
 })
 
@@ -132,7 +122,6 @@ app.delete("/users/:id", async (req, res) => {
       return res.status(404).json({ message: "User not found" })
     }
   } catch (error) {
-    console.error(error)
     return res.status(500).json({ message: "Error deleting user" })
   }
 })
@@ -144,73 +133,100 @@ app.post("/users/:userId/data", async (req, res) => {
 
   try {
     const userCheck = await User.findById(userId)
-
     if (!userCheck) {
       return res.status(404).json({ message: "User not found" })
     }
 
-    const checkCategory = await Data.findOne({ user: userId, category })
-    if (checkCategory) {
-      checkCategory.amount += amount
-      await checkCategory.save()
+    let dataRecord = await Data.findOne({ user: userId, category })
+
+    if (dataRecord) {
+      dataRecord.amount += amount
+      await dataRecord.save()
 
       return res.status(200).json({
         message: "Amount added successfully",
-        data: checkCategory,
+        data: dataRecord,
       })
-    }
-
-    const dataChange = await Data.findOne({ user: userId })
-    if (!dataChange) {
-      dataChange = new Data({
+    } else {
+      const newData = new Data({
         user: userId,
-        budget: 500,
+        category,
+        amount,
+        budget: budget || 500,
       })
-      await dataChange.save()
+
+      await newData.save()
+
+      userCheck.data.push(newData._id)
+      await userCheck.save()
+
+      return res.status(201).json({
+        message: "New data created successfully",
+        data: newData,
+      })
+    }
+  } catch (error) {
+    console.error("Error handling data:", error)
+    res.status(500).json({ message: "Error handling data", error })
+  }
+})
+//to update the budget
+app.post("/users/:userId/budget", async (req, res) => {
+  try {
+    const { budget } = req.body
+    const { userId } = req.params
+
+    const userCheck = await User.findById(userId)
+    if (!userCheck) {
+      return res.status(404).json({ message: "User not found" })
     }
 
-    if (budget !== undefined) {
-      const prevBudget = dataChange.budget
-      dataChange.budget = budget
-      await dataChange.save()
-      if (budget > prevBudget) {
-        return res.status(200).json({
-          message: "Budget increased successfully! 💰📈",
-          budgetAmount: budget,
-          prevData: prevBudget,
-        })
-      } else if (budget < prevBudget) {
-        return res.status(200).json({
-          message: "Budget decreased successfully! 💰📉",
-          budgetAmount: budget,
-          prevData: prevBudget,
-        })
-      } else {
-        return res.status(200).json({
-          message: "Budget remains same! 💰📊",
-          budgetAmount: budget,
-          prevData: prevBudget,
-        })
-      }
-    }
-
-    const newData = new Data({
-      user: userId,
-      category,
-      amount,
-    })
-
-    await newData.save()
-    userCheck.data.push(newData._id)
+    const prevBudget = userCheck.budget
+    userCheck.budget = budget
     await userCheck.save()
 
-    return res.status(201).json({
-      message: "Expense added successfully",
-      data: newData,
-      user: userId,
-    })
+    if (prevBudget > budget) {
+      return res.status(200).json({
+        message: "Budget decreased successfully! 💰📉",
+        budgetAmount: budget,
+        prevBudget,
+      })
+    } else if (prevBudget < budget) {
+      return res.status(200).json({
+        message: "Budget increased successfully! 💰📈",
+        budgetAmount: budget,
+        prevBudget,
+      })
+    } else {
+      return res.status(200).json({
+        message: "Budget remains the same! 💰📊",
+        budgetAmount: budget,
+        prevBudget,
+      })
+    }
   } catch (error) {
-    return res.status(500).json({ message: "Error adding expense", error })
+    return res
+      .status(500)
+      .json({ message: `Getting error while updating budget: ${error}` })
+  }
+})
+
+//send Budget
+app.get("/users/:userId/budget", async (req, res) => {
+  const { userId } = req.params
+  try {
+    const userCheck = await User.findById(userId)
+
+    if (!userCheck) {
+      return res.status(404).json({ message: "No user found" })
+    }
+    return res
+      .status(200)
+      .json({ budget: userCheck.budget})
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: `Getting error while getting budget: ${error}` })
   }
 })
 

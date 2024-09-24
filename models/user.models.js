@@ -14,6 +14,18 @@ const userSchema = mongoose.Schema({
     type: String,
     requied: true,
   },
+  budget: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 500,
+  },
+  remaining: {
+    type: Number,
+  },
+  spents: {
+    type: Number,
+  },
   data: [
     {
       type: mongoose.Schema.Types.ObjectId,
