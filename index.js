@@ -5,7 +5,8 @@ import bcrypt, { hash } from "bcrypt"
 import connnetDB from "./db/index.js"
 import User from "./models/user.models.js"
 import Data from "./models/data.models.js"
-import { Mongoose } from "mongoose"
+import Group from "./models/group.models.js"
+import GroupMembers from "./models/groupMembers.js"
 
 const app = express()
 
@@ -220,9 +221,7 @@ app.get("/users/:userId/budget", async (req, res) => {
     if (!userCheck) {
       return res.status(404).json({ message: "No user found" })
     }
-    return res
-      .status(200)
-      .json({ budget: userCheck.budget})
+    return res.status(200).json({ budget: userCheck.budget })
   } catch (error) {
     return res
       .status(500)
@@ -251,5 +250,93 @@ app.delete("/users/:userId/data/:dataId", async (req, res) => {
     return res.status(200).json({ message: "Data deleted successfully" })
   } catch (error) {
     return res.status(404).json({ error: "Invalid at deleting data" })
+  }
+})
+
+/*----------------------Group Box--------------------------*/
+
+// To create Group
+app.post("/create-group", async (req, res) => {
+  const { groupName, groupPassword, groupMembers } = req.body
+
+  const existingGroup = await Group.findOne({ groupName })
+  if (existingGroup) {
+    return res.status(409).json({ message: "Group name already exists" })
+  }
+
+  try {
+    const newMember = await GroupMembers.create({
+      members: groupMembers,
+      spents: 0,
+    })
+
+    const salt = 10
+    const hashedGroupPass = await bcrypt.hash(groupPassword, salt)
+
+    const newGroup = await Group.create({
+      groupName: groupName,
+      groupPassword: hashedGroupPass,
+      groupMembers: [newMember._id],
+    })
+
+    return res
+      .status(201)
+      .json({ message: "Group created successfully", group: newGroup })
+  } catch (error) {
+    return res
+      .status(404)
+      .message("getting error while creating group: ", error)
+  }
+})
+
+// To Join Group
+app.post("/join-group", async (req, res) => {
+  const { groupName, groupPassword, groupMembers } = req.body
+
+  try {
+    const existingGroup = await Group.findOne({ groupName })
+    if (!existingGroup) {
+      return res.status(404).json({ message: "No group found" })
+    }
+
+    const checkPass = await bcrypt.compare(
+      groupPassword,
+      existingGroup.groupPassword
+    )
+    if (!checkPass) {
+      return res.status(401).json({ message: "Entered wrong password" })
+    }
+    
+    const existingMem = await GroupMembers.findOne({members: groupMembers})
+    
+    if (!existingMem) {
+      const createNewMember = new GroupMembers({
+        members: groupMembers,
+        spents: 0,
+      })
+
+      existingGroup.groupMembers.push(createNewMember._id)
+
+      await existingGroup.save()
+      return res.status(200).json({ message: "User joined the group" })
+    }
+    
+    const existingMemInGroup = existingGroup.groupMembers.includes(existingMem?._id)
+    if(existingMemInGroup){
+      return res.status(400).json({ message: "User is already in that group" })
+    }
+
+  } catch (error) {
+    return res.status(404).json({ error: "While joining group" })
+  }
+})
+
+// To get all groups
+app.get("/groups", async (req, res) => {
+  try {
+    const groups = await Group.find()
+    return res.status(200).json({ groups })
+  } catch (error) {
+    return res.status(404).json({ error: "Error while getting details" })
   }
 })
