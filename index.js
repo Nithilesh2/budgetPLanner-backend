@@ -257,18 +257,14 @@ app.delete("/users/:userId/data/:dataId", async (req, res) => {
 
 // To create Group
 app.post("/create-group", async (req, res) => {
-  const { groupName, groupPassword, groupMembers } = req.body
-
-  const existingGroup = await Group.findOne({ groupName })
-  if (existingGroup) {
-    return res.status(409).json({ message: "Group name already exists" })
-  }
+  const { groupName, groupPassword } =
+    req.body
 
   try {
-    const newMember = await GroupMembers.create({
-      members: groupMembers,
-      spents: 0,
-    })
+    const existingGroup = await Group.findOne({ groupName })
+    if (existingGroup) {
+      return res.status(409).json({ message: "Group name already exists" })
+    }
 
     const salt = 10
     const hashedGroupPass = await bcrypt.hash(groupPassword, salt)
@@ -276,56 +272,84 @@ app.post("/create-group", async (req, res) => {
     const newGroup = await Group.create({
       groupName: groupName,
       groupPassword: hashedGroupPass,
-      groupMembers: [newMember._id],
     })
+
+    await newGroup.save()
 
     return res
       .status(201)
       .json({ message: "Group created successfully", group: newGroup })
   } catch (error) {
     return res
-      .status(404)
-      .message("getting error while creating group: ", error)
+      .status(500)
+      .json({message: "getting error while creating group: "+ error.message})
   }
 })
 
 // To Join Group
 app.post("/join-group", async (req, res) => {
-  const { groupName, groupPassword, groupMembers } = req.body
+  const { groupName, groupPassword, groupMembers, groupMembersPassword } =
+    req.body
 
   try {
+    const salt = 10
+
     const existingGroup = await Group.findOne({ groupName })
     if (!existingGroup) {
       return res.status(404).json({ message: "No group found" })
     }
 
-    const checkPass = await bcrypt.compare(
+    const checkGroupPass = await bcrypt.compare(
       groupPassword,
       existingGroup.groupPassword
     )
-    if (!checkPass) {
-      return res.status(401).json({ message: "Entered wrong password" })
+    if (!checkGroupPass) {
+      return res.status(401).json({ message: "Entered wrong Group Password" })
     }
-    
-    const existingMem = await GroupMembers.findOne({members: groupMembers})
-    
-    if (!existingMem) {
-      const createNewMember = new GroupMembers({
+
+    const existingMem = await GroupMembers.findOne({
+      members: groupMembers,
+      groupId: existingGroup._id,
+    })
+
+    if (existingMem) {
+      const existingMemPassword = await bcrypt.compare(
+        groupMembersPassword,
+        existingMem.password
+      )
+      if (existingMemPassword) {
+        return res.status(200).json({
+          message: "User Joined Group",
+          userId: existingMem._id,
+          userName: groupMembers,
+        })
+      }
+      return res.status(401).json({ message: "Entered wrong User Password" })
+    } else {
+      const hashedGroupMemberPassword = await bcrypt.hash(
+        groupMembersPassword,
+        salt
+      )
+
+      const newUser = new GroupMembers({
         members: groupMembers,
+        password: hashedGroupMemberPassword,
         spents: 0,
+        groupId: existingGroup._id,
       })
 
-      existingGroup.groupMembers.push(createNewMember._id)
+      await newUser.save()
 
+      existingGroup.groupMembers.push(newUser._id)
       await existingGroup.save()
-      return res.status(200).json({ message: "User joined the group" })
+      return res
+        .status(200)
+        .json({
+          message: "User created and joined successfully",
+          userId: newUser._id,
+          userName: groupMembers,
+        })
     }
-    
-    const existingMemInGroup = existingGroup.groupMembers.includes(existingMem?._id)
-    if(existingMemInGroup){
-      return res.status(400).json({ message: "User is already in that group" })
-    }
-
   } catch (error) {
     return res.status(404).json({ error: "While joining group" })
   }

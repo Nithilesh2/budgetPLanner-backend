@@ -1,4 +1,4 @@
-import mongoose, { mongo } from "mongoose"
+import mongoose from "mongoose"
 
 const membersSchema = mongoose.Schema(
   {
@@ -6,8 +6,17 @@ const membersSchema = mongoose.Schema(
       type: String,
       required: true,
     },
+    password: {
+      type: String,
+      required: true
+    },
     spents: {
       type: Number,
+    },
+    groupId: {  
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group",
+      required: true,
     },
     membersData: [
       {
