@@ -7,6 +7,11 @@ const dataSchema = mongoose.Schema(
       ref: "GroupMembers",
       required: true,
     },
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Group",
+      required: true,
+    },
     category: {
       type: String,
       required: true,

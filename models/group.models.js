@@ -9,7 +9,7 @@ const groupSchema = mongoose.Schema(
     },
     groupPassword: {
       type: String,
-      required: true
+      required: true,
     },
     groupMembers: [
       {

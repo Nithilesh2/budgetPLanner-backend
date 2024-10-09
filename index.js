@@ -7,6 +7,7 @@ import User from "./models/user.models.js"
 import Data from "./models/data.models.js"
 import Group from "./models/group.models.js"
 import GroupMembers from "./models/groupMembers.js"
+import GroupMembersData from "./models/groupMembersData.models.js"
 
 const app = express()
 
@@ -257,11 +258,11 @@ app.delete("/users/:userId/data/:dataId", async (req, res) => {
 
 // To create Group
 app.post("/create-group", async (req, res) => {
-  const { groupName, groupPassword } =
-    req.body
+  const { groupName, groupPassword } = req.body
 
+  const existingGroup = await Group.findOne({ groupName })
+  console.log(existingGroup)
   try {
-    const existingGroup = await Group.findOne({ groupName })
     if (existingGroup) {
       return res.status(409).json({ message: "Group name already exists" })
     }
@@ -282,7 +283,7 @@ app.post("/create-group", async (req, res) => {
   } catch (error) {
     return res
       .status(500)
-      .json({message: "getting error while creating group: "+ error.message})
+      .json({ message: "getting error while creating group: " + error.message })
   }
 })
 
@@ -322,6 +323,9 @@ app.post("/join-group", async (req, res) => {
           message: "User Joined Group",
           userId: existingMem._id,
           userName: groupMembers,
+          spents: existingMem.spents,
+          groupName: existingGroup.groupName,
+          groupId: existingGroup._id,
         })
       }
       return res.status(401).json({ message: "Entered wrong User Password" })
@@ -342,16 +346,16 @@ app.post("/join-group", async (req, res) => {
 
       existingGroup.groupMembers.push(newUser._id)
       await existingGroup.save()
-      return res
-        .status(200)
-        .json({
-          message: "User created and joined successfully",
-          userId: newUser._id,
-          userName: groupMembers,
-        })
+      return res.status(201).json({
+        message: "User created and joined successfully",
+        userId: newUser._id,
+        userName: groupMembers,
+        spents: newUser.spents,
+      })
     }
   } catch (error) {
-    return res.status(404).json({ error: "While joining group" })
+    console.error("An error: ", error)
+    return res.status(500).json({ error: "While joining group" })
   }
 })
 
@@ -362,5 +366,104 @@ app.get("/groups", async (req, res) => {
     return res.status(200).json({ groups })
   } catch (error) {
     return res.status(404).json({ error: "Error while getting details" })
+  }
+})
+
+//To post data into group by member
+app.post("/:groupId/members/:memberId/data", async (req, res) => {
+  const { category, amount } = req.body
+  const { memberId, groupId } = req.params
+
+  try {
+    const existingGroup = await Group.findById(groupId)
+    if (!existingGroup) {
+      return res.status(404).json({ message: "Group not found" })
+    }
+    const existingGroupMember = await GroupMembers.findOne({
+      _id: memberId,
+      groupId: groupId,
+    })
+    if (!existingGroupMember) {
+      return res.status(404).json({ message: "Member not found in the group" })
+    }
+
+    const existingCategory = await GroupMembersData.findOne({
+      groupMember: memberId,
+      groupId: groupId,
+      category: category,
+    })
+
+    if (existingCategory) {
+      existingCategory.amount += amount
+      await existingCategory.save()
+
+      existingGroupMember.spents += amount
+      await existingGroupMember.save()
+
+      return res.status(200).json({
+        message: "Amount added successfully",
+        category: existingCategory,
+        amount: amount,
+        spents: existingGroupMember.spents,
+      })
+    }
+
+    const newCategory = new GroupMembersData({
+      groupMember: memberId,
+      groupId: groupId,
+      category: category,
+      amount: amount,
+    })
+    await newCategory.save()
+
+    existingGroupMember.spents += amount
+    await existingGroupMember.save()
+
+    return res.status(200).json({
+      message: "New category added successfully",
+      category: newCategory,
+      amount: amount,
+    })
+  } catch (error) {
+    return res.status(500).json({ error: "Error while posting details" })
+  }
+})
+
+//To get the data of all users
+app.get("/:groupId/members/data", async (req, res) => {
+  const { groupId } = req.params
+  try {
+    const existingGroup = await Group.findById(groupId).populate('groupMembers')
+
+    if (!existingGroup) {
+      return res.status(404).json({ message: "Group not found" })
+    }
+
+    const members = existingGroup.groupMembers;
+    if (!members){
+      return res.status(404).json({ message: "No members found in this group" });
+    }
+
+    let groupMembersData = []
+    for (let i = 0; i < members.length; i++) {
+      const dataByGroupMember = await GroupMembersData.find({
+        groupMember: members[i]._id,
+      })
+
+      groupMembersData.push({
+        memberId: members[i]._id,
+        memberName: members[i].members,
+        spents: members[i].spents,
+        dataByGroupMember
+      })
+    }
+    return res.status(200).json({
+      membersData: groupMembersData,
+    });
+  } catch (error) {
+    console.error("error retrieving members", error)
+    return res
+      .status(500)
+      .json({ error: "Error while getting data of members" })
   }
 })
