@@ -433,15 +433,15 @@ app.post("/:groupId/members/:memberId/data", async (req, res) => {
 app.get("/:groupId/members/data", async (req, res) => {
   const { groupId } = req.params
   try {
-    const existingGroup = await Group.findById(groupId).populate('groupMembers')
+    const existingGroup = await Group.findById(groupId).populate("groupMembers")
 
     if (!existingGroup) {
       return res.status(404).json({ message: "Group not found" })
     }
 
-    const members = existingGroup.groupMembers;
-    if (!members){
-      return res.status(404).json({ message: "No members found in this group" });
+    const members = existingGroup.groupMembers
+    if (!members) {
+      return res.status(404).json({ message: "No members found in this group" })
     }
 
     let groupMembersData = []
@@ -454,16 +454,53 @@ app.get("/:groupId/members/data", async (req, res) => {
         memberId: members[i]._id,
         memberName: members[i].members,
         spents: members[i].spents,
-        dataByGroupMember
+        dataByGroupMember,
       })
     }
     return res.status(200).json({
       membersData: groupMembersData,
-    });
+    })
   } catch (error) {
     console.error("error retrieving members", error)
     return res
       .status(500)
       .json({ error: "Error while getting data of members" })
+  }
+})
+//To Delete Data of particular member
+
+app.delete("/:groupId/members/:memberId/data/:dataId", async (req, res) => {
+  const { groupId, memberId, dataId } = req.params
+
+  try {
+    const existingGroup = await Group.findById(groupId)
+    if (!existingGroup) {
+      return res.status(404).json({ message: "Group not found" })
+    }
+    const existingMem = await GroupMembers.findOne({
+      _id: memberId,
+      groupId: groupId,
+    })
+    if (!existingMem) {
+      return res.status(404).json({ message: "Member not found in the group" })
+    }
+    const existingCategory = await GroupMembersData.findOne({
+      _id: dataId,
+      groupMember: memberId,
+      groupId: groupId,
+    })
+    if (!existingCategory) {
+      return res
+        .status(404)
+        .json({ message: "Data not found in the member's category" })
+    }
+
+    await GroupMembersData.deleteOne({ _id: dataId })
+
+    return res.status(200).json({ message: "Data deleted successfully" })
+  } catch (error) {
+    return res
+      .status(404)
+      .json({ message: "Getting error while deleting category" })
   }
 })
