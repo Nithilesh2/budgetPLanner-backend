@@ -1,4 +1,4 @@
-import mongoose from "mongoose"
+import mongoose from "mongoose";
 
 const dataSchema = mongoose.Schema(
   {
@@ -16,11 +16,23 @@ const dataSchema = mongoose.Schema(
       required: true,
       min: 0,
     },
+    history: [
+      {
+        amount: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+        date: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   { timestamps: true }
-)
-dataSchema.index({ user: 1, category: 1 }, { unique: true })
+);
 
-const Data = mongoose.model("Data", dataSchema)
-
-export default Data
+dataSchema.index({ user: 1, category: 1 }, { unique: true });
+const Data = mongoose.model("Data", dataSchema);
+export default Data;

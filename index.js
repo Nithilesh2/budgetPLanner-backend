@@ -143,6 +143,7 @@ app.post("/users/:userId/data", async (req, res) => {
 
     if (dataRecord) {
       dataRecord.amount += amount
+      dataRecord.history.push({amount: amount, date: new Date()})
       await dataRecord.save()
 
       return res.status(200).json({
@@ -155,6 +156,7 @@ app.post("/users/:userId/data", async (req, res) => {
         category,
         amount,
         budget: budget || 500,
+        history: [{ amount: amount, date: new Date() }],
       })
 
       await newData.save()
