@@ -1,7 +1,9 @@
 import dotenv from "dotenv"
 import express from "express"
 import cors from "cors"
-import bcrypt, { hash } from "bcrypt"
+import jwt from "jsonwebtoken"
+import axios from "axios"
+import bcrypt from "bcrypt"
 import connnetDB from "./db/index.js"
 import User from "./models/user.models.js"
 import Data from "./models/data.models.js"
@@ -63,14 +65,17 @@ app.post("/signup", async (req, res) => {
     const { name, email, password } = req.body
 
     const userCheck = await User.findOne({ email })
-
-    if (userCheck) {
-      return res
-        .status(409)
-        .json({ message: "User already exists with this email" })
-    }
     const salt = 10
     const hashedPassword = await bcrypt.hash(password, salt)
+
+    if (userCheck) {
+      if(!password){
+        return res.status(400).json({ message: "Password is required for existing users." });
+      }
+
+      await User.updateOne({ email }, { password: hashedPassword });
+      return res.status(200).json({ message: "Password updated successfully." });
+    }
 
     const user = new User({ name, email, password: hashedPassword })
     await user.save()
@@ -82,6 +87,38 @@ app.post("/signup", async (req, res) => {
     })
   } catch (error) {
     return res.status(500).json({ message: "Internal server error" })
+  }
+})
+
+//to google signup
+app.post("/googleSignup", async (req, res) => {
+  const { token, email, name } = req.body
+
+  try {
+    const googleResponse = await axios.get(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${token}`
+    )
+    if (googleResponse.data.email !== email) {
+      return res.status(400).json({ message: "Token email mismatch" })
+    }
+
+    const checkUser = await User.findOne({ email })
+    if (checkUser) {
+      return res.status(409).json({ message: "User already exists" })
+    }
+    const newUser = new User({
+      email: email,
+      name: name,
+    })
+    await newUser.save()
+
+    const jwtToken = jwt.sign({ email, name }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    })
+
+    return res.status(200).json({ token: jwtToken })
+  } catch (error) {
+    return res.status(500).json({ message: "Error signing up" })
   }
 })
 
@@ -106,6 +143,26 @@ app.post("/login", async (req, res) => {
     })
   } catch (error) {
     return res.status(500).json({ message: `error while login: ${error}` })
+  }
+})
+
+//to login with google
+
+app.post("/googleLogin", async (req, res) => {
+  const { email } = req.body
+
+  try {
+    const emailCheck = await User.findOne({ email })
+    if (!emailCheck) {
+      return res.status(404).json({ message: "Email not found" })
+    }
+    return res.status(200).json({
+      message: "Successfully logged in",
+      userId: emailCheck._id,
+      name: emailCheck.name,
+    })
+  } catch (error) {
+    return res.status(500).json({ message: `error while login ${error}` })
   }
 })
 
@@ -143,7 +200,7 @@ app.post("/users/:userId/data", async (req, res) => {
 
     if (dataRecord) {
       dataRecord.amount += amount
-      dataRecord.history.push({amount: amount, date: new Date()})
+      dataRecord.history.push({ amount: amount, date: new Date() })
       await dataRecord.save()
 
       return res.status(200).json({
@@ -263,7 +320,6 @@ app.post("/create-group", async (req, res) => {
   const { groupName, groupPassword } = req.body
 
   const existingGroup = await Group.findOne({ groupName })
-  console.log(existingGroup)
   try {
     if (existingGroup) {
       return res.status(409).json({ message: "Group name already exists" })
