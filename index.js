@@ -526,7 +526,6 @@ app.get("/:groupId/members/data", async (req, res) => {
   }
 })
 //To Delete Data of particular member
-
 app.delete("/:groupId/members/:memberId/data/:dataId", async (req, res) => {
   const { groupId, memberId, dataId } = req.params
 
@@ -553,7 +552,12 @@ app.delete("/:groupId/members/:memberId/data/:dataId", async (req, res) => {
         .json({ message: "Data not found in the member's category" })
     }
 
+    const spentAmount = existingCategory.amount;
+
     await GroupMembersData.deleteOne({ _id: dataId })
+    await GroupMembers.findByIdAndUpdate(memberId, {
+      $inc: { spents: -spentAmount },
+    });
 
     return res.status(200).json({ message: "Data deleted successfully" })
   } catch (error) {
