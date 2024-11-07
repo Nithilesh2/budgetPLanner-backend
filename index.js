@@ -112,8 +112,8 @@ app.post("/googleSignup", async (req, res) => {
     })
     await newUser.save()
 
-    const jwtToken = jwt.sign({ email, name }, process.env.JWT_SECRET, {
-      expiresIn: "1h",
+    const jwtToken = jwt.sign({ email, name, id: newUser._id }, process.env.JWT_SECRET, {
+      expiresIn: "10m",
     })
 
     return res.status(200).json({ token: jwtToken })
