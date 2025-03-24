@@ -10,11 +10,18 @@ import Data from "./models/data.models.js"
 import Group from "./models/group.models.js"
 import GroupMembers from "./models/groupMembers.js"
 import GroupMembersData from "./models/groupMembersData.models.js"
+import multer from "multer"
+import path from "path"
+import fs from "fs"
+import { fileURLToPath } from "url"
 
 const app = express()
 
 app.use(express.json())
 app.use(cors())
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 dotenv.config({
   path: "./.env",
@@ -29,6 +36,17 @@ connnetDB()
   .catch((err) => {
     console.error(err)
   })
+
+const storage = multer.diskStorage({
+  destination: "./uploads/",
+  filename: (req, file, cb) => {
+    cb(
+      null,
+      file.fieldname + "-" + Date.now() + path.extname(file.originalname)
+    )
+  },
+})
+const upload = multer({ storage })
 
 //to get the users
 app.get("/users", async (req, res) => {
@@ -69,12 +87,14 @@ app.post("/signup", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt)
 
     if (userCheck) {
-      if(!password){
-        return res.status(400).json({ message: "Password is required for existing users." });
+      if (!password) {
+        return res
+          .status(400)
+          .json({ message: "Password is required for existing users." })
       }
 
-      await User.updateOne({ email }, { password: hashedPassword });
-      return res.status(200).json({ message: "Password updated successfully." });
+      await User.updateOne({ email }, { password: hashedPassword })
+      return res.status(200).json({ message: "Password updated successfully." })
     }
 
     const user = new User({ name, email, password: hashedPassword })
@@ -112,9 +132,13 @@ app.post("/googleSignup", async (req, res) => {
     })
     await newUser.save()
 
-    const jwtToken = jwt.sign({ email, name, id: newUser._id }, process.env.JWT_SECRET, {
-      expiresIn: "10m",
-    })
+    const jwtToken = jwt.sign(
+      { email, name, id: newUser._id },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "10m",
+      }
+    )
 
     return res.status(200).json({ token: jwtToken })
   } catch (error) {
@@ -186,9 +210,13 @@ app.delete("/users/:id", async (req, res) => {
 })
 
 //to post the data for that user
-app.post("/users/:userId/data", async (req, res) => {
+app.post("/users/:userId/data", upload.single("image"), async (req, res) => {
   const { category, amount, budget } = req.body
   const { userId } = req.params
+  const image = req.file ? `uploads/${req.file.filename}` : null
+
+  const numericAmount = Number(amount)
+  const numericBudget = Number(budget)
 
   try {
     const userCheck = await User.findById(userId)
@@ -199,8 +227,12 @@ app.post("/users/:userId/data", async (req, res) => {
     let dataRecord = await Data.findOne({ user: userId, category })
 
     if (dataRecord) {
-      dataRecord.amount += amount
-      dataRecord.history.push({ amount: amount, date: new Date() })
+      dataRecord.amount += numericAmount
+      dataRecord.history.push({
+        amount: numericAmount,
+        image,
+        date: new Date(),
+      })
       await dataRecord.save()
 
       return res.status(200).json({
@@ -211,9 +243,9 @@ app.post("/users/:userId/data", async (req, res) => {
       const newData = new Data({
         user: userId,
         category,
-        amount,
-        budget: budget || 500,
-        history: [{ amount: amount, date: new Date() }],
+        amount: numericAmount,
+        budget: numericBudget || 500,
+        history: [{ amount: numericAmount, image, date: new Date() }],
       })
 
       await newData.save()
@@ -231,6 +263,7 @@ app.post("/users/:userId/data", async (req, res) => {
     res.status(500).json({ message: "Error handling data", error })
   }
 })
+
 //to update the budget
 app.post("/users/:userId/budget", async (req, res) => {
   try {
@@ -291,27 +324,41 @@ app.get("/users/:userId/budget", async (req, res) => {
 
 //to delete the particular data for that user
 app.delete("/users/:userId/data/:dataId", async (req, res) => {
-  const { userId, dataId } = req.params
+  const { userId, dataId } = req.params;
 
   try {
-    const userExists = await User.findOne({ _id: userId })
+    const userExists = await User.findById(userId);
     if (!userExists) {
-      return res.status(404).json({ message: "User not found" })
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const deletedData = await Data.deleteOne({ _id: dataId, user: userId })
-    if (deletedData.deletedCount === 0) {
-      return res.status(404).json({ message: "Data not found" })
+    const dataEntry = await Data.findOne({ _id: dataId, user: userId });
+    if (!dataEntry) {
+      return res.status(404).json({ message: "Data not found" });
     }
 
-    userExists.data = userExists.data.filter((id) => id.toString() !== dataId)
-    await userExists.save()
+    if (dataEntry.history) {
+      dataEntry.history.forEach((item) => {
+        if (item.image) {
+          const imagePath = path.join(__dirname, "uploads", path.basename(item.image));
+          if (fs.existsSync(imagePath)) {
+            fs.unlinkSync(imagePath);
+          }
+        }
+      });
+    }
 
-    return res.status(200).json({ message: "Data deleted successfully" })
+    await Data.deleteOne({ _id: dataId, user: userId });
+
+    userExists.data = userExists.data.filter((id) => id.toString() !== dataId);
+    await userExists.save();
+
+    return res.status(200).json({ message: "Data and associated images deleted successfully" });
   } catch (error) {
-    return res.status(404).json({ error: "Invalid at deleting data" })
+    console.error("Error deleting data:", error);
+    return res.status(500).json({ error: "Error deleting data" });
   }
-})
+});
 
 /*----------------------Group Box--------------------------*/
 
@@ -552,12 +599,12 @@ app.delete("/:groupId/members/:memberId/data/:dataId", async (req, res) => {
         .json({ message: "Data not found in the member's category" })
     }
 
-    const spentAmount = existingCategory.amount;
+    const spentAmount = existingCategory.amount
 
     await GroupMembersData.deleteOne({ _id: dataId })
     await GroupMembers.findByIdAndUpdate(memberId, {
       $inc: { spents: -spentAmount },
-    });
+    })
 
     return res.status(200).json({ message: "Data deleted successfully" })
   } catch (error) {
