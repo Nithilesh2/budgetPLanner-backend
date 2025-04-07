@@ -11,20 +11,22 @@ import Group from "./models/group.models.js"
 import GroupMembers from "./models/groupMembers.js"
 import GroupMembersData from "./models/groupMembersData.models.js"
 import multer from "multer"
-import path from "path"
-import fs from "fs"
-import { fileURLToPath } from "url"
+import { v2 as cloudinary } from "cloudinary"
+import { CloudinaryStorage } from "multer-storage-cloudinary"
 
 const app = express()
 
 app.use(express.json())
 app.use(cors())
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 dotenv.config({
   path: "./.env",
+})
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 })
 
 connnetDB()
@@ -37,13 +39,11 @@ connnetDB()
     console.error(err)
   })
 
-const storage = multer.diskStorage({
-  destination: "./uploads/",
-  filename: (req, file, cb) => {
-    cb(
-      null,
-      file.fieldname + "-" + Date.now() + path.extname(file.originalname)
-    )
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "user-images",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
   },
 })
 const upload = multer({ storage })
@@ -171,7 +171,6 @@ app.post("/login", async (req, res) => {
 })
 
 //to login with google
-
 app.post("/googleLogin", async (req, res) => {
   const { email } = req.body
 
@@ -213,7 +212,7 @@ app.delete("/users/:id", async (req, res) => {
 app.post("/users/:userId/data", upload.single("image"), async (req, res) => {
   const { category, amount, budget } = req.body
   const { userId } = req.params
-  const image = req.file ? `uploads/${req.file.filename}` : null
+  const image = req.file ? req.file.path : null;
 
   const numericAmount = Number(amount)
   const numericBudget = Number(budget)
@@ -324,41 +323,47 @@ app.get("/users/:userId/budget", async (req, res) => {
 
 //to delete the particular data for that user
 app.delete("/users/:userId/data/:dataId", async (req, res) => {
-  const { userId, dataId } = req.params;
+  const { userId, dataId } = req.params
 
   try {
-    const userExists = await User.findById(userId);
+    const userExists = await User.findById(userId)
     if (!userExists) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: "User not found" })
     }
 
-    const dataEntry = await Data.findOne({ _id: dataId, user: userId });
+    const dataEntry = await Data.findOne({ _id: dataId, user: userId })
     if (!dataEntry) {
-      return res.status(404).json({ message: "Data not found" });
+      return res.status(404).json({ message: "Data not found" })
     }
 
     if (dataEntry.history) {
       dataEntry.history.forEach((item) => {
         if (item.image) {
-          const imagePath = path.join(__dirname, "uploads", path.basename(item.image));
+          const imagePath = path.join(
+            __dirname,
+            "uploads",
+            path.basename(item.image)
+          )
           if (fs.existsSync(imagePath)) {
-            fs.unlinkSync(imagePath);
+            fs.unlinkSync(imagePath)
           }
         }
-      });
+      })
     }
 
-    await Data.deleteOne({ _id: dataId, user: userId });
+    await Data.deleteOne({ _id: dataId, user: userId })
 
-    userExists.data = userExists.data.filter((id) => id.toString() !== dataId);
-    await userExists.save();
+    userExists.data = userExists.data.filter((id) => id.toString() !== dataId)
+    await userExists.save()
 
-    return res.status(200).json({ message: "Data and associated images deleted successfully" });
+    return res
+      .status(200)
+      .json({ message: "Data and associated images deleted successfully" })
   } catch (error) {
-    console.error("Error deleting data:", error);
-    return res.status(500).json({ error: "Error deleting data" });
+    console.error("Error deleting data:", error)
+    return res.status(500).json({ error: "Error deleting data" })
   }
-});
+})
 
 /*----------------------Group Box--------------------------*/
 
